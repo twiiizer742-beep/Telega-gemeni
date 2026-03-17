@@ -7,7 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
 
-// Фикс для Render: создание сервера
+// Сервер для Render
 http.createServer((req, res) => {
   res.writeHead(200);
   res.end('Bot is live');
@@ -15,14 +15,14 @@ http.createServer((req, res) => {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+// ЖЕСТКАЯ ПРИВЯЗКА К V1, чтобы убрать ошибку 404
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY, { apiVersion: 'v1' });
 
 const adapter = new JSONFile(path.join(__dirname, 'db.json'));
 const db = new Low(adapter, { users: {} });
 await db.read();
 
-// Тот самый жесткий промпт, чтобы не было звездочек
-const SYSTEM_PROMPT = "Ты Кирилл. Пиши просто. ЗАПРЕЩЕНЫ: звездочки (*), решетки (#). Для списков используй только точки (•).";
+const SYSTEM_PROMPT = "Ты Кирилл. Пиши просто, без звездочек (*) и решеток (#).";
 
 const MODELS = {
   flash: 'gemini-1.5-flash',
@@ -67,7 +67,7 @@ bot.hears('🧹 Очистить память', async (ctx) => {
 
 bot.on('text', async (ctx) => {
   const text = ctx.message.text;
-  if (text.startsWith('/') || ['🚀 Быстрый режим (Flash)', '🧠 Умный режим (Pro)', '🧹 Очистить память', '📊 Статус'].includes(text)) return;
+  if (text.startsWith('/') || ['🚀 Быстрый режим (Flash)', '🧠 Умный режим (Pro)', '🧹 Очистить память'].includes(text)) return;
   
   const user = getUserData(ctx.from.id);
   await ctx.sendChatAction('typing');
@@ -82,10 +82,7 @@ bot.on('text', async (ctx) => {
     const chat = model.startChat({ history: history.slice(-10) });
     
     const result = await chat.sendMessage(text);
-    // Дополнительная чистка текста на случай, если ИИ проигнорирует промпт
     let aiText = result.response.text().replace(/[*#]/g, '').trim();
-
-    if (aiText.length > 4000) aiText = aiText.substring(0, 3900) + '...';
 
     history.push({ role: 'user', parts: [{ text }] });
     history.push({ role: 'model', parts: [{ text: aiText }] });
@@ -94,7 +91,7 @@ bot.on('text', async (ctx) => {
     await ctx.reply(aiText);
   } catch (e) {
     console.error('Ошибка ИИ:', e.message);
-    await ctx.reply('Что-то пошло не так. Попробуй еще раз через 10 секунд.');
+    await ctx.reply('Проблема с подключением к Google. Подожди 10 секунд и попробуй снова.');
   }
 });
 
