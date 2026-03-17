@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "telegraf": "^4.12.2",
-    "@google/generative-ai": "^0.1.0",
+    "@google/generative-ai": "^0.21.0",
     "lowdb": "^6.0.1",
     "node-fetch": "^3.3.1"
   }
