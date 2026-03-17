@@ -6,7 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
 
-// 1. Сервер для работы на Render
+// 1. Простейший сервер для Render
 http.createServer((req, res) => {
   res.writeHead(200);
   res.end('Bot is live');
@@ -14,14 +14,14 @@ http.createServer((req, res) => {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// 2. Инициализация ИИ (версия v1 — самая стабильная для квот)
+// 2. Инициализация ИИ (Версия v1 — самая надежная)
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY, { apiVersion: 'v1' });
 
 const adapter = new JSONFile(path.join(__dirname, 'db.json'));
 const db = new Low(adapter, { users: {} });
 await db.read();
 
-// 3. Используем 1.5 Flash — у неё самые большие бесплатные лимиты
+// 3. Используем 1.5 Flash (у неё больше всего бесплатных лимитов)
 const MODELS = {
   flash: 'gemini-1.5-flash',
   pro: 'gemini-1.5-pro',
@@ -38,11 +38,11 @@ function getUserData(userId) {
 }
 
 const getMainMenu = () => Markup.keyboard([
-  ['🚀 Быстрый режим', '🧠 Умный режим (Pro)'],
+  ['🚀 Быстрый режим', '🧠 Умный режим'],
   ['🧹 Очистить память', '📊 Статус']
 ]).resize();
 
-bot.start((ctx) => ctx.reply('Кирилл на связи! Бот обновлен.', getMainMenu()));
+bot.start((ctx) => ctx.reply('Кирилл на связи! Бот обновлен и готов.', getMainMenu()));
 
 bot.hears('🚀 Быстрый режим', async (ctx) => {
   getUserData(ctx.from.id).currentModel = 'flash';
@@ -50,7 +50,7 @@ bot.hears('🚀 Быстрый режим', async (ctx) => {
   ctx.reply('⚡ Режим 1.5 Flash включен');
 });
 
-bot.hears('🧠 Умный режим (Pro)', async (ctx) => {
+bot.hears('🧠 Умный режим', async (ctx) => {
   getUserData(ctx.from.id).currentModel = 'pro';
   await db.write();
   ctx.reply('🧠 Режим Pro включен');
@@ -65,20 +65,20 @@ bot.hears('🧹 Очистить память', async (ctx) => {
 
 bot.on('text', async (ctx) => {
   const text = ctx.message.text;
-  if (text.startsWith('/') || ['🚀 Быстрый режим', '🧠 Умный режим (Pro)', '🧹 Очистить память'].includes(text)) return;
+  if (text.startsWith('/') || ['🚀 Быстрый режим', '🧠 Умный режим', '🧹 Очистить память'].includes(text)) return;
   
   const user = getUserData(ctx.from.id);
   await ctx.sendChatAction('typing');
 
   try {
-    // Вызываем модель с жестким указанием версии API
+    // Явно указываем v1, чтобы не было ошибок 404/400
     const model = genAI.getGenerativeModel({ 
       model: MODELS[user.currentModel] 
     }, { apiVersion: 'v1' });
     
     const history = user.currentModel === 'flash' ? user.flashHistory : user.proHistory;
     
-    // Вставляем системную инструкцию прямо в начало чата, чтобы не было ошибки 400
+    // Инструкция прямо внутри истории (самый надежный способ)
     const chatHistory = history.length === 0 
       ? [{ role: 'user', parts: [{ text: "Ты Кирилл. Пиши кратко, без символов * и #." }] }, { role: 'model', parts: [{ text: "Понял!" }] }]
       : history.slice(-10);
@@ -95,14 +95,14 @@ bot.on('text', async (ctx) => {
   } catch (e) {
     console.error('Ошибка ИИ:', e.message);
     if (e.message.includes('429')) {
-      await ctx.reply('Google вредничает (лимиты). Подожди пару минут.');
+      await ctx.reply('Лимиты Google исчерпаны. Подожди пару минут и попробуй снова.');
     } else {
-      await ctx.reply('Произошла ошибка. Попробуй еще раз через 10 секунд.');
+      await ctx.reply('Произошла ошибка. Попробуй через 10 секунд.');
     }
   }
 });
 
-// 4. Запуск с защитой от двойных сессий (Conflict 409)
+// Запуск с очисткой «зависших» сообщений
 bot.launch({ dropPendingUpdates: true }).then(() => {
-  console.log('✅ Бот полностью готов и запущен!');
+  console.log('✅ Бот на Gemini 1.5 Flash запущен!');
 });
