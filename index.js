@@ -7,7 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
 
-// 1. Сервер-заглушка для Render (чтобы сервис был Live)
+// Сервер для Render
 http.createServer((req, res) => {
   res.writeHead(200);
   res.end('Bot is live');
@@ -15,15 +15,14 @@ http.createServer((req, res) => {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// 2. ЖЕСТКАЯ ПРИВЯЗКА К V1 (убирает ошибку 404 Not Found)
+// 1. Инициализация с явным указанием v1
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY, { apiVersion: 'v1' });
 
 const adapter = new JSONFile(path.join(__dirname, 'db.json'));
 const db = new Low(adapter, { users: {} });
 await db.read();
 
-// Системный промпт (убирает лишнее оформление ИИ)
-const SYSTEM_PROMPT = "Ты Кирилл. Пиши кратко и по делу. ЗАПРЕЩЕНЫ: звездочки (*), решетки (#). Используй только точки для списков.";
+const SYSTEM_PROMPT = "Ты Кирилл. Пиши просто. БЕЗ звездочек (*) и решеток (#).";
 
 const MODELS = {
   flash: 'gemini-1.5-flash',
@@ -45,7 +44,7 @@ const getMainMenu = () => Markup.keyboard([
   ['🧹 Очистить память', '📊 Статус']
 ]).resize();
 
-bot.start((ctx) => ctx.reply('Кирилл на связи! Выбери режим работы:', getMainMenu()));
+bot.start((ctx) => ctx.reply('Кирилл на связи!', getMainMenu()));
 
 bot.hears('🚀 Быстрый режим (Flash)', async (ctx) => {
   getUserData(ctx.from.id).currentModel = 'flash';
@@ -63,7 +62,7 @@ bot.hears('🧹 Очистить память', async (ctx) => {
   const user = getUserData(ctx.from.id);
   user.flashHistory = []; user.proHistory = [];
   await db.write();
-  ctx.reply('🧹 Память диалога очищена');
+  ctx.reply('🧹 Память очищена');
 });
 
 bot.on('text', async (ctx) => {
@@ -74,16 +73,16 @@ bot.on('text', async (ctx) => {
   await ctx.sendChatAction('typing');
 
   try {
+    // 2. ДУБЛИРУЕМ apiVersion прямо здесь. Это критический фикс!
     const model = genAI.getGenerativeModel({ 
       model: MODELS[user.currentModel],
       systemInstruction: SYSTEM_PROMPT 
-    });
+    }, { apiVersion: 'v1' });
     
     const history = user.currentModel === 'flash' ? user.flashHistory : user.proHistory;
     const chat = model.startChat({ history: history.slice(-10) });
     
     const result = await chat.sendMessage(text);
-    // Принудительная очистка текста от мусора
     let aiText = result.response.text().replace(/[*#]/g, '').trim();
 
     history.push({ role: 'user', parts: [{ text }] });
@@ -93,11 +92,10 @@ bot.on('text', async (ctx) => {
     await ctx.reply(aiText);
   } catch (e) {
     console.error('Ошибка ИИ:', e.message);
-    await ctx.reply('Ошибка связи с Google. Подожди 10 сек и попробуй снова.');
+    // Если ошибка всё еще 404, выведем её в лог полностью
+    await ctx.reply('Что-то не так с доступом к Gemini. Проверь логи Render.');
   }
 });
 
-// 3. ЗАПУСК С ОЧИСТКОЙ ОЧЕРЕДИ (убирает ошибку 409 Conflict)
-bot.launch({ dropPendingUpdates: true }).then(() => {
-  console.log('✅ Бот запущен и готов к работе!');
-});
+// Запуск с очисткой очереди
+bot.launch({ dropPendingUpdates: true }).then(() => console.log('✅ Бот запущен!'));
