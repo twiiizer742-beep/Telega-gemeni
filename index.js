@@ -2,7 +2,6 @@ import { Telegraf, Markup } from 'telegraf';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Low } from 'lowdb';
 import { JSONFile } from 'lowdb/node';
-import fetch from 'node-fetch';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
@@ -15,18 +14,17 @@ http.createServer((req, res) => {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// 1. Инициализация с явным указанием v1
+// Работаем через v1, так как v1beta нестабильна
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY, { apiVersion: 'v1' });
 
 const adapter = new JSONFile(path.join(__dirname, 'db.json'));
 const db = new Low(adapter, { users: {} });
 await db.read();
 
-const SYSTEM_PROMPT = "Ты Кирилл. Пиши просто. БЕЗ звездочек (*) и решеток (#).";
-
+// Новые актуальные модели
 const MODELS = {
-  flash: 'gemini-1.5-flash',
-  pro: 'gemini-1.5-pro',
+  flash: 'gemini-2.0-flash',
+  pro: 'gemini-1.5-pro', // Pro 2.0 пока в превью, оставим стабильную 1.5
 };
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
@@ -40,19 +38,19 @@ function getUserData(userId) {
 }
 
 const getMainMenu = () => Markup.keyboard([
-  ['🚀 Быстрый режим (Flash)', '🧠 Умный режим (Pro)'],
+  ['🚀 Быстрый (2.0 Flash)', '🧠 Умный (Pro)'],
   ['🧹 Очистить память', '📊 Статус']
 ]).resize();
 
-bot.start((ctx) => ctx.reply('Кирилл на связи!', getMainMenu()));
+bot.start((ctx) => ctx.reply('Кирилл на связи! Используем Gemini 2.0.', getMainMenu()));
 
-bot.hears('🚀 Быстрый режим (Flash)', async (ctx) => {
+bot.hears('🚀 Быстрый (2.0 Flash)', async (ctx) => {
   getUserData(ctx.from.id).currentModel = 'flash';
   await db.write();
-  ctx.reply('⚡ Режим Flash включен');
+  ctx.reply('⚡ Gemini 2.0 Flash включен');
 });
 
-bot.hears('🧠 Умный режим (Pro)', async (ctx) => {
+bot.hears('🧠 Умный (Pro)', async (ctx) => {
   getUserData(ctx.from.id).currentModel = 'pro';
   await db.write();
   ctx.reply('🧠 Режим Pro включен');
@@ -67,20 +65,24 @@ bot.hears('🧹 Очистить память', async (ctx) => {
 
 bot.on('text', async (ctx) => {
   const text = ctx.message.text;
-  if (text.startsWith('/') || ['🚀 Быстрый режим (Flash)', '🧠 Умный режим (Pro)', '🧹 Очистить память'].includes(text)) return;
+  if (text.startsWith('/') || ['🚀 Быстрый (2.0 Flash)', '🧠 Умный (Pro)', '🧹 Очистить память'].includes(text)) return;
   
   const user = getUserData(ctx.from.id);
   await ctx.sendChatAction('typing');
 
   try {
-    // 2. ДУБЛИРУЕМ apiVersion прямо здесь. Это критический фикс!
-    const model = genAI.getGenerativeModel({ 
-      model: MODELS[user.currentModel],
-      systemInstruction: SYSTEM_PROMPT 
-    }, { apiVersion: 'v1' });
+    // В версии v1 для некоторых моделей systemInstruction передается иначе
+    // Чтобы избежать ошибки 400, мы просто добавим инструкцию в начало истории
+    const model = genAI.getGenerativeModel({ model: MODELS[user.currentModel] });
     
     const history = user.currentModel === 'flash' ? user.flashHistory : user.proHistory;
-    const chat = model.startChat({ history: history.slice(-10) });
+    
+    // Если история пуста, добавим системную роль как обычный текст для надежности
+    const chatHistory = history.length === 0 
+      ? [{ role: 'user', parts: [{ text: "Инструкция: Ты Кирилл. Пиши кратко, без символов * и #." }] }, { role: 'model', parts: [{ text: "Понял, я Кирилл. Буду писать просто." }] }]
+      : history.slice(-10);
+
+    const chat = model.startChat({ history: chatHistory });
     
     const result = await chat.sendMessage(text);
     let aiText = result.response.text().replace(/[*#]/g, '').trim();
@@ -91,11 +93,9 @@ bot.on('text', async (ctx) => {
 
     await ctx.reply(aiText);
   } catch (e) {
-    console.error('Ошибка ИИ:', e.message);
-    // Если ошибка всё еще 404, выведем её в лог полностью
-    await ctx.reply('Что-то не так с доступом к Gemini. Проверь логи Render.');
+    console.error('Ошибка:', e.message);
+    await ctx.reply('Проблема с Gemini 2.0. Попробуй еще раз через пару секунд.');
   }
 });
 
-// Запуск с очисткой очереди
-bot.launch({ dropPendingUpdates: true }).then(() => console.log('✅ Бот запущен!'));
+bot.launch({ dropPendingUpdates: true }).then(() => console.log('✅ Бот на Gemini 2.0 запущен!'));
