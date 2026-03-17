@@ -7,7 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
 
-// 1. Фикс для Render: создаем сервер, чтобы сервис не засыпал
+// Фикс для Render: создание сервера
 http.createServer((req, res) => {
   res.writeHead(200);
   res.end('Bot is live');
@@ -15,18 +15,14 @@ http.createServer((req, res) => {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-if (!process.env.GOOGLE_API_KEY || !process.env.TELEGRAM_BOT_TOKEN) {
-  throw new Error('Переменные окружения не настроены!');
-}
-
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 
 const adapter = new JSONFile(path.join(__dirname, 'db.json'));
 const db = new Low(adapter, { users: {} });
 await db.read();
 
-// Системный промпт для "чистого" вывода
-const SYSTEM_PROMPT = "Ты Кирилл, эксперт. Пиши просто. ЗАПРЕЩЕНЫ: звездочки (*), решетки (#), линии (---). Для списков используй только точки (•).";
+// Тот самый жесткий промпт, чтобы не было звездочек
+const SYSTEM_PROMPT = "Ты Кирилл. Пиши просто. ЗАПРЕЩЕНЫ: звездочки (*), решетки (#). Для списков используй только точки (•).";
 
 const MODELS = {
   flash: 'gemini-1.5-flash',
@@ -53,13 +49,13 @@ bot.start((ctx) => ctx.reply('Кирилл на связи!', getMainMenu()));
 bot.hears('🚀 Быстрый режим (Flash)', async (ctx) => {
   getUserData(ctx.from.id).currentModel = 'flash';
   await db.write();
-  ctx.reply('⚡ Режим Flash (быстрый) включен');
+  ctx.reply('⚡ Режим Flash включен');
 });
 
 bot.hears('🧠 Умный режим (Pro)', async (ctx) => {
   getUserData(ctx.from.id).currentModel = 'pro';
   await db.write();
-  ctx.reply('🧠 Режим Pro (умный) включен');
+  ctx.reply('🧠 Режим Pro включен');
 });
 
 bot.hears('🧹 Очистить память', async (ctx) => {
@@ -71,7 +67,7 @@ bot.hears('🧹 Очистить память', async (ctx) => {
 
 bot.on('text', async (ctx) => {
   const text = ctx.message.text;
-  if (text.startsWith('/')) return;
+  if (text.startsWith('/') || ['🚀 Быстрый режим (Flash)', '🧠 Умный режим (Pro)', '🧹 Очистить память', '📊 Статус'].includes(text)) return;
   
   const user = getUserData(ctx.from.id);
   await ctx.sendChatAction('typing');
@@ -83,10 +79,11 @@ bot.on('text', async (ctx) => {
     });
     
     const history = user.currentModel === 'flash' ? user.flashHistory : user.proHistory;
-    const chat = model.startChat({ history: history.slice(-10) }); // Храним последние 10 сообщений
+    const chat = model.startChat({ history: history.slice(-10) });
     
     const result = await chat.sendMessage(text);
-    let aiText = result.response.text().replace(/[*#\[\]]/g, '').trim();
+    // Дополнительная чистка текста на случай, если ИИ проигнорирует промпт
+    let aiText = result.response.text().replace(/[*#]/g, '').trim();
 
     if (aiText.length > 4000) aiText = aiText.substring(0, 3900) + '...';
 
@@ -97,7 +94,7 @@ bot.on('text', async (ctx) => {
     await ctx.reply(aiText);
   } catch (e) {
     console.error('Ошибка ИИ:', e.message);
-    await ctx.reply('Ошибка доступа к модели. Попробуй позже.');
+    await ctx.reply('Что-то пошло не так. Попробуй еще раз через 10 секунд.');
   }
 });
 
