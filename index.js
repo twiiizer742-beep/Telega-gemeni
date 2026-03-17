@@ -11,11 +11,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 if (!process.env.GOOGLE_API_KEY) throw new Error('GOOGLE_API_KEY is not set');
 if (!process.env.TELEGRAM_BOT_TOKEN) throw new Error('TELEGRAM_BOT_TOKEN is not set');
 
+// ВОТ ЭТИХ СТРОК НЕ ХВАТАЛО:
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
 const adapter = new JSONFile(path.join(__dirname, 'db.json'));
 const db = new Low(adapter, { users: {} });
 await db.read();
-
-// ... выше твой код импортов и инициализации бота ...
 
 const SYSTEM_PROMPT = `Ты — современный ИИ-ассистент Кирилла. Ты эксперт в маркетинге, фото и видео.
 Твой стиль: дружелюбный, без официоза. Пиши как реальный человек в мессенджере.
