@@ -7,7 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
 
-// Сервер для Render
+// 1. Сервер-заглушка для Render (чтобы сервис был Live)
 http.createServer((req, res) => {
   res.writeHead(200);
   res.end('Bot is live');
@@ -15,14 +15,15 @@ http.createServer((req, res) => {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// ЖЕСТКАЯ ПРИВЯЗКА К V1, чтобы убрать ошибку 404
+// 2. ЖЕСТКАЯ ПРИВЯЗКА К V1 (убирает ошибку 404 Not Found)
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY, { apiVersion: 'v1' });
 
 const adapter = new JSONFile(path.join(__dirname, 'db.json'));
 const db = new Low(adapter, { users: {} });
 await db.read();
 
-const SYSTEM_PROMPT = "Ты Кирилл. Пиши просто, без звездочек (*) и решеток (#).";
+// Системный промпт (убирает лишнее оформление ИИ)
+const SYSTEM_PROMPT = "Ты Кирилл. Пиши кратко и по делу. ЗАПРЕЩЕНЫ: звездочки (*), решетки (#). Используй только точки для списков.";
 
 const MODELS = {
   flash: 'gemini-1.5-flash',
@@ -44,7 +45,7 @@ const getMainMenu = () => Markup.keyboard([
   ['🧹 Очистить память', '📊 Статус']
 ]).resize();
 
-bot.start((ctx) => ctx.reply('Кирилл на связи!', getMainMenu()));
+bot.start((ctx) => ctx.reply('Кирилл на связи! Выбери режим работы:', getMainMenu()));
 
 bot.hears('🚀 Быстрый режим (Flash)', async (ctx) => {
   getUserData(ctx.from.id).currentModel = 'flash';
@@ -62,7 +63,7 @@ bot.hears('🧹 Очистить память', async (ctx) => {
   const user = getUserData(ctx.from.id);
   user.flashHistory = []; user.proHistory = [];
   await db.write();
-  ctx.reply('🧹 Память очищена');
+  ctx.reply('🧹 Память диалога очищена');
 });
 
 bot.on('text', async (ctx) => {
@@ -82,6 +83,7 @@ bot.on('text', async (ctx) => {
     const chat = model.startChat({ history: history.slice(-10) });
     
     const result = await chat.sendMessage(text);
+    // Принудительная очистка текста от мусора
     let aiText = result.response.text().replace(/[*#]/g, '').trim();
 
     history.push({ role: 'user', parts: [{ text }] });
@@ -91,8 +93,11 @@ bot.on('text', async (ctx) => {
     await ctx.reply(aiText);
   } catch (e) {
     console.error('Ошибка ИИ:', e.message);
-    await ctx.reply('Проблема с подключением к Google. Подожди 10 секунд и попробуй снова.');
+    await ctx.reply('Ошибка связи с Google. Подожди 10 сек и попробуй снова.');
   }
 });
 
-bot.launch().then(() => console.log('Bot is running!'));
+// 3. ЗАПУСК С ОЧИСТКОЙ ОЧЕРЕДИ (убирает ошибку 409 Conflict)
+bot.launch({ dropPendingUpdates: true }).then(() => {
+  console.log('✅ Бот запущен и готов к работе!');
+});
